@@ -1,14 +1,41 @@
 import 'package:flutter/material.dart';
+import '../utils/health_service.dart';
+import '../widgets/activity_heatmap.dart';
 
-class ActivityScreen extends StatelessWidget {
+class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
+
+  @override
+  State<ActivityScreen> createState() => _ActivityScreenState();
+}
+
+class _ActivityScreenState extends State<ActivityScreen> {
+  final HealthService _healthService = HealthService();
+  Map<DateTime, int> _history = {};
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistory();
+  }
+
+  Future<void> _fetchHistory() async {
+    final history = await _healthService.getStepsHistory(90);
+    if (mounted) {
+      setState(() {
+        _history = history;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -37,27 +64,21 @@ class ActivityScreen extends StatelessWidget {
               ),
               const SizedBox(height: 25),
 
-              // Tabs
-              Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: Colors.grey.shade200),
-                  ),
+              // Heatmap Integration
+              if (_isLoading)
+                const Center(child: CircularProgressIndicator())
+              else
+                ActivityHeatmap(
+                  datasets: _history,
+                  startDate: DateTime.now().subtract(const Duration(days: 90)),
+                  endDate: DateTime.now(),
                 ),
-                child: Row(
-                  children: [
-                    _buildTab("Progress", true),
-                    const SizedBox(width: 30),
-                    _buildTab("Insights", false),
-                  ],
-                ),
-              ),
+
               const SizedBox(height: 30),
 
               // Daily Goal Card
               Row(
                 children: [
-                  // Circular Progress
                   SizedBox(
                     height: 80,
                     width: 80,
@@ -117,16 +138,12 @@ class ActivityScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(width: 10),
-                  const Icon(
-                    Icons.bar_chart,
-                    color: Color(0xFF009688),
-                  ), // Placeholder for mini chart
+                  const Icon(Icons.bar_chart, color: Color(0xFF009688)),
                 ],
               ),
-
               const SizedBox(height: 40),
 
-              // Great Progress Card
+              // Great Progress Card (same as before)
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -142,7 +159,6 @@ class ActivityScreen extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    // Left Text
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -165,7 +181,6 @@ class ActivityScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    // Right Chart
                     SizedBox(
                       width: 120,
                       height: 120,
@@ -212,8 +227,7 @@ class ActivityScreen extends StatelessWidget {
                               ],
                             ),
                           ),
-                          // Rocket Icon simulated
-                          Positioned(
+                          const Positioned(
                             bottom: 10,
                             left: 10,
                             child: Icon(
@@ -232,31 +246,6 @@ class ActivityScreen extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildTab(String text, bool isSelected) {
-    return Column(
-      children: [
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: isSelected ? const Color(0xFF009688) : Colors.grey,
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (isSelected)
-          Container(
-            height: 3,
-            width: 30,
-            decoration: BoxDecoration(
-              color: const Color(0xFF009688),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-      ],
     );
   }
 }

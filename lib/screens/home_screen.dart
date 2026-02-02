@@ -1,8 +1,17 @@
-import 'package:flutter/material.dart';
-import '../utils/health_service.dart';
-import 'chat_screen.dart';
-import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:developer' as developer;
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/health_service.dart';
+import '../widgets/energy_card.dart';
+import '../widgets/bmi_card.dart'; // NEW
+import '../widgets/wellness_card.dart';
+import '../widgets/sleep_card.dart';
+import '../widgets/stat_card.dart';
+import 'chat_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,50 +22,97 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final HealthService _healthService = HealthService();
+
+  // Real Data
   int _steps = 0;
+  int _calories = 0;
+  int _heartRate = 0;
+  int _distance = 0;
+  String _sleepDuration = "0h 0m";
+  List<double> _weeklySteps = [];
+  List<SleepDailyData> _weeklySleep = [];
   bool _isLoading = true;
-  String _deviceName = "User";
+
+  String _userName = "User";
+  String? _profilePicUrl;
 
   @override
   void initState() {
     super.initState();
+    _loadUserInfo();
     _fetchData();
-    _getDeviceName();
   }
 
-  Future<void> _getDeviceName() async {
-    final deviceInfo = DeviceInfoPlugin();
-    String name = "User";
-    try {
-      if (Platform.isAndroid) {
-        final androidInfo = await deviceInfo.androidInfo;
-        name = androidInfo.model; // e.g. "Pixel 5"
-      } else if (Platform.isIOS) {
-        final iosInfo = await deviceInfo.iosInfo;
-        name = iosInfo.name; // e.g. "iPhone 13"
+  Future<void> _loadUserInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? storedName = prefs.getString('user_name');
+    String? storedPic = prefs.getString('profile_pic_url');
+
+    // If no stored name, fallback to device info
+    if (storedName == null || storedName.isEmpty) {
+      final deviceInfo = DeviceInfoPlugin();
+      try {
+        if (Platform.isAndroid) {
+          final androidInfo = await deviceInfo.androidInfo;
+          storedName = androidInfo.model;
+        } else if (Platform.isIOS) {
+          final iosInfo = await deviceInfo.iosInfo;
+          storedName = iosInfo.name;
+        }
+      } catch (e) {
+        developer.log("Error fetching device info: $e");
       }
-    } catch (e) {
-      debugPrint("Error fetching device info: $e");
     }
 
     if (mounted) {
       setState(() {
-        _deviceName = name;
+        _userName = storedName ?? "User";
+        _profilePicUrl = storedPic;
       });
     }
   }
 
   Future<void> _fetchData() async {
     try {
-      await _healthService.requestPermissions();
-      int steps = await _healthService.getSteps();
+      developer.log("Fetching health data for dashboard...");
+      bool authorized = await _healthService.requestPermissions();
+      if (!authorized) {
+        developer.log("Permissions denied or Health Connect not available");
+        if (mounted) {
+          // Show dialog after a slight delay to ensure context is ready if called from init
+          Future.delayed(Duration.zero, () => _showPermissionDialog());
+        }
+      }
+
+      // Parallel fetching for performance
+      final results = await Future.wait([
+        _healthService.getSteps(),
+        _healthService.getCalories(),
+        _healthService.getHeartRate(),
+        _healthService.getSleepData(),
+        _healthService.getWeeklySteps(),
+        _healthService.getWeeklySleep(),
+        _healthService.getDistance(),
+      ]);
+
       if (mounted) {
         setState(() {
-          _steps = steps;
+          _steps = results[0] as int;
+          _calories = results[1] as int;
+          _heartRate = results[2] as int;
+          _sleepDuration = results[3] as String;
+          _weeklySteps = results[4] as List<double>;
+          _weeklySleep = results[5] as List<SleepDailyData>;
+          _distance = results[6] as int;
         });
       }
-    } catch (e) {
-      debugPrint("Error in _fetchData: $e");
+      developer.log("All dashboard data synced.");
+    } catch (e, stackTrace) {
+      developer.log(
+        "Error in _fetchData: $e",
+        error: e,
+        stackTrace: stackTrace,
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -66,318 +122,279 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showPermissionDialog() async {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Permissions Required"),
+        content: const Text(
+          "Health Buddy needs access to your health data (Steps, Sleep, etc.) to function correctly.\n\nPlease enable permissions in Settings.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await openAppSettings();
+            },
+            child: const Text("Open Settings"),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              if (_isLoading)
-                const Center(child: CircularProgressIndicator())
-              else ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Hi $_deviceName",
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          "Here is your daily stats",
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const CircleAvatar(
-                      backgroundImage: NetworkImage(
-                        'https://i.pravatar.cc/150?img=11',
-                      ), // Placeholder
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Insight Card
-                Container(
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE0F2F1), // Light teal
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.teal.withValues(alpha: 0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Row(
+      backgroundColor: const Color(0xFFF5F5F5), // Light Gray BG like reference
+      body: RefreshIndicator(
+        onRefresh: _fetchData,
+        child: SafeArea(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.error_outline, color: Color(0xFF009688)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          "Don't be lazy, you haven't exercised for 3 days",
-                          style: TextStyle(color: Colors.teal[800]),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 25),
-
-                // Stats Grid
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        title: "Calories",
-                        value: "603 kc",
-                        color: const Color(0xFF00C853), // Green
-                        icon: Icons.local_fire_department,
-                      ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: _buildStatCard(
-                        title: "Weight",
-                        value: "80 kg",
-                        color: const Color(0xFF009688), // Teal
-                        icon: Icons.monitor_weight,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 25),
-
-                // Walking/Steps Card
-                Container(
-                  height: 150,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF009688),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF009688).withValues(alpha: 0.4),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      // Header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            "Walking",
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
-                            ),
+                          Row(
+                            children: [
+                              // Avatar
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const ProfileScreen(),
+                                    ),
+                                  ).then(
+                                    (_) => _loadUserInfo(),
+                                  ); // Refresh on return
+                                },
+                                child: CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: Colors.grey[300],
+                                  backgroundImage:
+                                      _profilePicUrl != null &&
+                                          _profilePicUrl!.isNotEmpty
+                                      ? NetworkImage(_profilePicUrl!)
+                                      : null,
+                                  child:
+                                      _profilePicUrl == null ||
+                                          _profilePicUrl!.isEmpty
+                                      ? const Icon(
+                                          Icons.person,
+                                          color: Colors.grey,
+                                        )
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "Hello, $_userName",
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  // Removed mock email
+                                ],
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 5),
-                          Text(
-                            "$_steps Steps",
-                            style: const TextStyle(
+                          // Search Bar Mock
+                          Container(
+                            width: 150,
+                            height: 40,
+                            decoration: BoxDecoration(
                               color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              children: [
+                                SizedBox(width: 10),
+                                Icon(
+                                  Icons.search,
+                                  color: Colors.grey,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  "Search...",
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                      const Spacer(),
-                      // Placeholder for Wave/Graph
+                      const SizedBox(height: 30),
+
+                      const Text(
+                        "Health Overview",
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Text(
+                        "Take control of your health today!",
+                        style: TextStyle(color: Colors.grey, fontSize: 14),
+                      ),
+
+                      const SizedBox(height: 25),
+
+                      // Sleep Card (Moved to Top)
+                      SleepCard(
+                        sleepDuration: _sleepDuration,
+                        weeklySleep: _weeklySleep,
+                        monthlySleep: _monthlySleep, // New
+                        onViewModeChanged: (mode) {
+                          setState(() {
+                            _sleepViewMode = mode;
+                          });
+                          if (mode == "Monthly" && _monthlySleep.isEmpty) {
+                            _fetchMonthlySleep();
+                          }
+                        },
+                      ),
+
+                      const SizedBox(height: 15),
+
+                      // Heart Rate & Activity Row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: StatCard(
+                              icon: Icons.favorite_border,
+                              title: "Heart Rate",
+                              value: _heartRate.toString(),
+                              unit: "bpm",
+                              subTitle: "Avg",
+                              subValue: "Latest",
+                              rawData: "Source: Health Connect | Now",
+                            ),
+                          ),
+                          const SizedBox(width: 15),
+                          Expanded(
+                            child: StatCard(
+                              icon: Icons.directions_run,
+                              title: "Activity",
+                              value: (_steps / 1000).toStringAsFixed(1),
+                              unit: "k steps",
+                              subTitle: "Dist",
+                              subValue:
+                                  "${(_distance / 1000).toStringAsFixed(2)} km",
+                              rawData: "Source: Health Connect | Now",
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 15),
+
+                      // BMI Card (Replaces Wellness)
+                      BMICard(bmi: _bmi, weight: _weight, height: _height),
+
+                      const SizedBox(height: 20),
+
+                      // NutriGPT Entry Point
                       Container(
-                        width: 100,
-                        height: 60,
+                        padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(
-                            alpha: 0.2,
-                          ), // Updated for consistency
-                          borderRadius: BorderRadius.circular(10),
+                          gradient: const LinearGradient(
+                            colors: [
+                              Color(0xFFD7FF64),
+                              Color(0xFFC7B9FF),
+                            ], // Lime to Purple
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(24),
                         ),
-                        child: const Icon(
-                          Icons.graphic_eq,
-                          color: Colors.white,
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: const BoxDecoration(
+                                color: Colors.black,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.auto_awesome,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 15),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "Start Chat with NutriGPT",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  Text(
+                                    "Get personalized Ai health advice.",
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ElevatedButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const ChatScreen(
+                                      modelId: "llama3-8b-8192",
+                                      modelName: "NutriGPT",
+                                    ),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.black,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                              ),
+                              child: const Text(
+                                "Chat Now",
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+
+                      const SizedBox(height: 80), // Bottom padding
                     ],
                   ),
                 ),
-                const SizedBox(height: 25),
-
-                // NutriGPT
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      "NutriGPT",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    TextButton(onPressed: () {}, child: const Text("See all")),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 140, // Height for model cards
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _buildModelCard(
-                        "Llama 3",
-                        "llama3-70b-8192",
-                        Colors.orangeAccent,
-                      ),
-                      _buildModelCard(
-                        "GPT-OSS",
-                        "openai/gpt-oss-120b",
-                        Colors.purpleAccent,
-                      ),
-                      _buildModelCard(
-                        "Mixtral",
-                        "mixtral-8x7b-32768",
-                        Colors.blueAccent,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // TODO: Implement menu
-        },
-        backgroundColor: Colors.white,
-        child: const Icon(Icons.add, color: Colors.teal),
-      ),
-    );
-  }
-
-  Widget _buildStatCard({
-    required String title,
-    required String value,
-    required Color color,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.4),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: const TextStyle(color: Colors.white70)),
-              const Icon(Icons.more_horiz, color: Colors.white70),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: 0.7,
-            backgroundColor: Colors.black12,
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModelCard(String name, String id, Color color) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ChatScreen(modelName: name, modelId: id),
-          ),
-        );
-      },
-      child: Container(
-        width: 110,
-        margin: const EdgeInsets.only(
-          right: 15,
-          bottom: 10,
-          top: 10,
-        ), // Margin for shadow
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.3),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
-          border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.smart_toy, color: color, size: 28),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              name,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-          ],
-        ),
-      ),
+      floatingActionButton: null,
     );
   }
 }

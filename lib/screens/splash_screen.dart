@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'main_scaffold.dart';
+import 'home_screen.dart';
 import '../widgets/gravitor_blob.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -26,7 +26,7 @@ class _SplashScreenState extends State<SplashScreen>
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const MainScaffold()),
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
         );
       }
     });

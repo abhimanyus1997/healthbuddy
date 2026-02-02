@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'activity_screen.dart';
+import 'profile_screen.dart';
 
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
@@ -12,10 +13,10 @@ class MainScaffold extends StatefulWidget {
 class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
+  final List<Widget> _screens = [
     HomeScreen(),
     ActivityScreen(),
-    Center(child: Text("Profile - Coming Soon")), // Placeholder for 3rd tab
+    ProfileScreen(),
   ];
 
   @override
