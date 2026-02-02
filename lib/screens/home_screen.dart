@@ -39,6 +39,21 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
 
   String _userName = "User";
+  String _selectedModelId = "openai/gpt-oss-20b";
+  String _selectedModelName = "GPT-OSS 20B";
+
+  final List<Map<String, String>> _availableModels = [
+    {"id": "openai/gpt-oss-20b", "name": "GPT-OSS 20B (Fast)"},
+    {
+      "id": "meta-llama/llama-4-scout-17b-16e-instruct",
+      "name": "Llama 4 Scout",
+    },
+    {
+      "id": "meta-llama/llama-4-maverick-17b-128e-instruct",
+      "name": "Llama 4 Maverick",
+    },
+    {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B (Smart)"},
+  ];
 
   @override
   void initState() {
@@ -50,6 +65,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
     String? storedName = prefs.getString('user_name');
+    String? storedModel = prefs.getString('selected_model_id');
+
+    if (storedModel != null) {
+      final model = _availableModels.firstWhere(
+        (m) => m['id'] == storedModel,
+        orElse: () => _availableModels[0],
+      );
+      _selectedModelId = model['id']!;
+      _selectedModelName = model['name']!;
+    }
 
     // If no stored name, fallback to device info
     if (storedName == null || storedName.isEmpty) {
@@ -80,8 +105,6 @@ class _HomeScreenState extends State<HomeScreen> {
       bool authorized = await _healthService.requestPermissions();
       if (!authorized) {
         developer.log("Permissions denied or Health Connect not available");
-        developer.log("Permissions denied or Health Connect not available");
-        // Do not auto-show dialog on init, let user trigger it
       }
 
       // Parallel fetching for performance
@@ -166,6 +189,66 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _showModelPicker() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Select AI Model",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Different models offer different speeds and capabilities.",
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              ..._availableModels.map((model) {
+                final isSelected = _selectedModelId == model['id'];
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    isSelected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    color: isSelected ? Colors.purple : Colors.grey,
+                  ),
+                  title: Text(
+                    model['name']!,
+                    style: TextStyle(
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  onTap: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('selected_model_id', model['id']!);
+                    setState(() {
+                      _selectedModelId = model['id']!;
+                      _selectedModelName = model['name']!.split(' (')[0];
+                    });
+                    if (mounted) Navigator.pop(context);
+                  },
+                );
+              }),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -200,7 +283,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                     (_) => _loadUserInfo(),
                                   ); // Refresh on return
                                 },
-                                // Using FluttermojiCircleAvatar for the avatar
                                 child: FluttermojiCircleAvatar(
                                   radius: 20,
                                   backgroundColor: Colors.grey[300],
@@ -217,46 +299,91 @@ class _HomeScreenState extends State<HomeScreen> {
                                       fontSize: 16,
                                     ),
                                   ),
-                                  // Removed mock email
+                                  Text(
+                                    _selectedModelName,
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],
                           ),
                           const SizedBox(height: 10),
-                          // Search Bar (Functional)
+                          // Search Bar & Settings
                           Expanded(
-                            child: GestureDetector(
-                              onTap: () {
-                                showSearch(
-                                  context: context,
-                                  delegate: HealthSearchDelegate(),
-                                );
-                              },
-                              child: Container(
-                                height: 30,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: const Row(
-                                  children: [
-                                    SizedBox(width: 10),
-                                    Icon(
-                                      Icons.search,
-                                      color: Colors.grey,
-                                      size: 20,
-                                    ),
-                                    SizedBox(width: 5),
-                                    Text(
-                                      "Search...",
-                                      style: TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 12,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      showSearch(
+                                        context: context,
+                                        delegate: HealthSearchDelegate(),
+                                      );
+                                    },
+                                    child: Container(
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(20),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.05,
+                                            ),
+                                            blurRadius: 5,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Row(
+                                        children: [
+                                          SizedBox(width: 12),
+                                          Icon(
+                                            Icons.search,
+                                            color: Colors.grey,
+                                            size: 20,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            "Search logs...",
+                                            style: TextStyle(
+                                              color: Colors.grey,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+                                GestureDetector(
+                                  onTap: _showModelPicker,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.05,
+                                          ),
+                                          blurRadius: 5,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      Icons.settings,
+                                      color: Colors.black87,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -277,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       const SizedBox(height: 25),
 
-                      // Sleep Card (Moved to Top)
+                      // Sleep Card
                       ParallaxTilt(
                         child: SleepCard(
                           sleepDuration: _sleepDuration,
@@ -329,7 +456,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       const SizedBox(height: 15),
 
-                      // BMI Card (Replaces Wellness)
+                      // BMI Card
                       ParallaxTilt(
                         child: BMICard(
                           bmi: _bmi,
@@ -345,10 +472,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [
-                              Color(0xFFD7FF64),
-                              Color(0xFFC7B9FF),
-                            ], // Lime to Purple
+                            colors: [Color(0xFFD7FF64), Color(0xFFC7B9FF)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
@@ -368,18 +492,18 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             const SizedBox(width: 15),
-                            const Expanded(
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    "Start Chat with NutriGPT",
+                                  const Text(
+                                    "NutriGPT",
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16,
                                     ),
                                   ),
-                                  Text(
+                                  const Text(
                                     "Get personalized Ai health advice.",
                                     style: TextStyle(fontSize: 12),
                                   ),
@@ -391,8 +515,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => const ChatScreen(
-                                      modelId: "llama-3.3-70b-versatile",
+                                    builder: (context) => ChatScreen(
+                                      modelId: _selectedModelId,
                                       modelName: "NutriGPT",
                                     ),
                                   ),
@@ -405,7 +529,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               child: const Text(
-                                "Chat Now",
+                                "Chat",
                                 style: TextStyle(color: Colors.white),
                               ),
                             ),
@@ -419,7 +543,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
         ),
       ),
-      floatingActionButton: null,
     );
   }
 }

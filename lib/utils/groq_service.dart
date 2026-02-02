@@ -10,7 +10,8 @@ class GroqService {
 
   Future<String?> sendMessage(
     List<Map<String, String>> messages, {
-    String model = 'llama-3.3-70b-versatile',
+    String model = 'openai/gpt-oss-20b',
+    Map<String, dynamic>? responseFormat,
   }) async {
     final apiKey = dotenv.env['GROQ_API_KEY'];
     if (apiKey == null || apiKey.isEmpty) {
@@ -23,7 +24,24 @@ class GroqService {
       developer.log("--- GROQ REQUEST START ---");
       developer.log("Model: $model");
       developer.log("Messages Payload: ${jsonEncode(messages)}");
+      if (responseFormat != null) {
+        developer.log("Response Format: ${jsonEncode(responseFormat)}");
+      }
       developer.log("--- GROQ REQUEST END ---");
+
+      final body = {
+        "messages": messages,
+        "model": model,
+        "temperature": 0.7,
+        "max_completion_tokens": 1024,
+        "top_p": 1,
+        "stream": false,
+        "stop": null,
+      };
+
+      if (responseFormat != null) {
+        body['response_format'] = responseFormat;
+      }
 
       final response = await http.post(
         Uri.parse(_baseUrl),
@@ -31,15 +49,7 @@ class GroqService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $apiKey',
         },
-        body: jsonEncode({
-          "messages": messages,
-          "model": model,
-          "temperature": 0.7,
-          "max_completion_tokens": 1024,
-          "top_p": 1,
-          "stream": false,
-          "stop": null,
-        }),
+        body: jsonEncode(body),
       );
 
       if (response.statusCode == 200) {

@@ -1,9 +1,15 @@
+import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter_streaming_text_markdown/flutter_streaming_text_markdown.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/chart_data.dart';
+import '../models/meal_plan.dart';
 import '../utils/groq_service.dart';
 import '../utils/rag_service.dart';
+import '../widgets/chart_message_bubble.dart';
+import '../widgets/meal_plan_table.dart';
 import '../widgets/typing_indicator.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -22,11 +28,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final GroqService _groqService = GroqService();
   final RagService _ragService = RagService();
 
-  // Stores UI messages + System context
   final List<Map<String, String>> _messages = [];
-
-  // Separate list for display to hide system prompt if needed
-  // But commonly we just filter by role != system in the listview
 
   bool _isLoading = false;
   bool _contextLoaded = false;
@@ -39,12 +41,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _initChat() async {
-    // 1. Load API Key (ensure it's available for service, usually service reads env but if user set it in settings, we might need to handle that)
-    // 2. Load RAG Context
     final logs = await _ragService.getAllLogs();
 
-    // Construct Context String
-    const int maxLogs = 5; // Limit to last 5 days
+    const int maxLogs = 5;
     String contextData = logs
         .take(maxLogs)
         .map((l) {
@@ -52,7 +51,6 @@ class _ChatScreenState extends State<ChatScreen> {
         })
         .join("\n");
 
-    // Load User Demographics
     final prefs = await SharedPreferences.getInstance();
     final String age = prefs.getString('user_age') ?? 'Unknown';
     final String height = prefs.getString('user_height') ?? 'Unknown';
@@ -62,20 +60,49 @@ class _ChatScreenState extends State<ChatScreen> {
     if (contextData.isNotEmpty) {
       _ragContext =
           "User Profile: Age: $age, Height: ${height}cm, Weight: ${weight}kg, Gender: $gender.\n"
-          "Recent Health Data:\n$contextData\n\n"
-          "Use this to provide specific, personalized advice based on their actual trends.";
+          "Recent Health Data:\n$contextData\n\n";
     } else {
       _ragContext =
           "User Profile: Age: $age, Height: ${height}cm, Weight: ${weight}kg, Gender: $gender.\n"
           "No history data available yet.";
     }
 
-    // Set System Prompt
+    // Structured Output Instructions
+    const String structuredOutputInstruction = """
+IMPORTANT: When the user asks for a diet plan or meal plan, you MUST respond ONLY with a valid JSON object.
+Structure:
+{
+  "type": "meal_plan",
+  "title": "Weekly Vegetarian Diet Plan",
+  "days": [
+    {
+      "day": "Monday",
+      "breakfast": "Oatmeal with fruits",
+      "snack1": "Mixed nuts",
+      "lunch": "Dal with rice and sabzi",
+      "snack2": "Apple",
+      "dinner": "Chapati with paneer"
+    },
+    ... more days ...
+  ],
+  "note": "Optional tip"
+}
+
+When the user asks for a chart or visualization, respond ONLY with a valid JSON object:
+{
+  "type": "chart",
+  "chart_type": "bar",
+  "title": "Chart Title",
+  "data": [{"label": "Label1", "value": 10}, {"label": "Label2", "value": 20}],
+  "color": "#4CAF50"
+}
+""";
+
     setState(() {
       _messages.add({
         "role": "system",
         "content":
-            "You are NutriGPT, an AI health assistant. $_ragContext\n\nKeep answers concise, encouraging, and actionable.",
+            "You are NutriGPT, an AI health assistant. $_ragContext\n\nKeep answers concise, encouraging, and actionable.\n$structuredOutputInstruction",
       });
       _contextLoaded = true;
     });
@@ -105,30 +132,162 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _scrollToBottom();
 
-    // Prepare history for API (filter out any UI-only internal messages if we had them)
-    // currently _messages matches API format exactly
+    // Detect if we should request structured output
+    final lowerMsg = userMessage.toLowerCase();
+    Map<String, dynamic>? responseFormat;
 
-    // We must ensure the apiKey is available. The GroqService currently looks at dotenv.
-    // If we want to support the user-entered key from ProfileScreen, we need to pass it or set it.
-    // For now, we rely on the implementation in GroqService (env).
-    // UPDATE: To support the profile setting, we should read it here and pass to service if possible,
-    // but service signature doesn't take key. Assuming env for now or fixed in service.
+    if (lowerMsg.contains("diet") ||
+        lowerMsg.contains("meal plan") ||
+        lowerMsg.contains("food plan")) {
+      responseFormat = {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "meal_plan_response",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "type": {"type": "string"}, // Removed const
+              "title": {"type": "string"},
+              "days": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "day": {"type": "string"},
+                    "breakfast": {"type": "string"},
+                    "snack1": {"type": "string"},
+                    "lunch": {"type": "string"},
+                    "snack2": {"type": "string"},
+                    "dinner": {"type": "string"},
+                  },
+                  "required": ["day"],
+                },
+              },
+              "note": {"type": "string"},
+            },
+            "required": ["type", "title", "days"],
+          },
+          "strict": false,
+        },
+      };
+    } else if (lowerMsg.contains("chart") ||
+        lowerMsg.contains("graph") ||
+        lowerMsg.contains("plot")) {
+      responseFormat = {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "chart_response",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "type": {"type": "string"}, // Removed const
+              "chart_type": {
+                "type": "string",
+              }, // Removed enum for better validation error handling
+              "title": {"type": "string"},
+              "data": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {"type": "string"},
+                    "value": {"type": "number"},
+                  },
+                  "required": ["label", "value"],
+                },
+              },
+              "color": {"type": "string"},
+            },
+            "required": ["type", "chart_type", "title", "data"],
+          },
+          "strict": false,
+        },
+      };
+    }
 
-    final response = await _groqService.sendMessage(
+    // Determine which model to use based on intent
+    String modelToUse = "llama-3.3-70b-versatile";
+    if (responseFormat != null) {
+      modelToUse = "openai/gpt-oss-20b";
+    }
+
+    String? response = await _groqService.sendMessage(
       _messages,
-      model: widget.modelId,
+      model: modelToUse,
+      responseFormat: responseFormat,
     );
 
+    // Fail-safe: If JSON validation failed (Error 400), retry WITHOUT responseFormat
+    if (response != null && response.startsWith("Error: 400")) {
+      developer.log(
+        "JSON Validation Failed. Retrying with plain text using llama-3.3...",
+      );
+      response = await _groqService.sendMessage(
+        _messages,
+        model: "llama-3.3-70b-versatile",
+        responseFormat: null, // Clear response format
+      );
+    }
+
+    developer.log("RAW LLM RESPONSE: $response");
+
     if (mounted) {
+      _handleResponse(response);
+    }
+  }
+
+  void _handleResponse(String? response) {
+    if (response == null) {
       setState(() {
         _messages.add({
           "role": "assistant",
-          "content": response ?? "Error: No response from NutriGPT.",
+          "content": "Error: No response from NutriGPT.",
         });
         _isLoading = false;
       });
       _scrollToBottom();
+      return;
     }
+
+    // Try to parse as JSON
+    if (response.trim().startsWith('{')) {
+      try {
+        final json = jsonDecode(response) as Map<String, dynamic>;
+        final type = json['type'] as String?;
+
+        if (type == 'meal_plan') {
+          setState(() {
+            _messages.add({"role": "meal_plan", "content": response});
+            _isLoading = false;
+          });
+          _scrollToBottom();
+          return;
+        } else if (type == 'chart') {
+          // Convert to chart format
+          final chartJson = {
+            "type": json['chart_type'] ?? 'bar',
+            "title": json['title'],
+            "data": json['data'],
+            "color": json['color'],
+          };
+          setState(() {
+            _messages.add({"role": "chart", "content": jsonEncode(chartJson)});
+            _isLoading = false;
+          });
+          _scrollToBottom();
+          return;
+        }
+      } catch (e) {
+        developer.log("JSON parse error: $e");
+      }
+    }
+
+    // Fallback: regular text response
+    setState(() {
+      _messages.add({"role": "assistant", "content": response});
+      _isLoading = false;
+    });
+    _scrollToBottom();
   }
 
   @override
@@ -150,7 +309,6 @@ class _ChatScreenState extends State<ChatScreen> {
         elevation: 0,
         foregroundColor: Colors.black,
         actions: [
-          // RAG Status Indicator
           if (_contextLoaded)
             Container(
               margin: const EdgeInsets.only(right: 16),
@@ -187,11 +345,53 @@ class _ChatScreenState extends State<ChatScreen> {
                 itemCount: _messages.length,
                 itemBuilder: (context, index) {
                   final message = _messages[index];
-                  final isUser = message['role'] == 'user';
-                  final isSystem = message['role'] == 'system';
+                  final role = message['role'];
 
-                  // Hide system prompt from UI
-                  if (isSystem) return const SizedBox.shrink();
+                  if (role == 'system') return const SizedBox.shrink();
+
+                  // Meal Plan Handling
+                  if (role == 'meal_plan') {
+                    try {
+                      final mealPlan = MealPlan.fromJson(
+                        jsonDecode(message['content']!),
+                      );
+                      return Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: MediaQuery.of(context).size.width * 0.95,
+                          child: MealPlanTable(
+                            mealPlan: mealPlan,
+                            modelName: widget.modelName,
+                          ),
+                        ),
+                      );
+                    } catch (e) {
+                      return Text("Error displaying meal plan: $e");
+                    }
+                  }
+
+                  // Chart Handling
+                  if (role == 'chart') {
+                    try {
+                      final chartData = ChartData.fromJson(
+                        jsonDecode(message['content']!),
+                      );
+                      return Align(
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: MediaQuery.of(context).size.width * 0.85,
+                          child: ChartMessageBubble(
+                            chartData: chartData,
+                            modelName: widget.modelName,
+                          ),
+                        ),
+                      );
+                    } catch (e) {
+                      return Text("Error displaying chart: $e");
+                    }
+                  }
+
+                  final isUser = role == 'user';
 
                   return Align(
                     alignment: isUser
@@ -205,9 +405,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       decoration: BoxDecoration(
                         gradient: isUser
-                            ? null // User: Dark/Black
+                            ? null
                             : const LinearGradient(
-                                // AI: Lime to Purple
                                 colors: [Color(0xFFD7FF64), Color(0xFFC7B9FF)],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
@@ -252,7 +451,6 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
 
-            // Interaction Area
             if (_isLoading)
               Align(
                 alignment: Alignment.centerLeft,
@@ -309,10 +507,10 @@ class _ChatScreenState extends State<ChatScreen> {
                           borderSide: BorderSide.none,
                         ),
                         filled: true,
-                        fillColor: Colors.grey[100], // Functional gray
+                        fillColor: Colors.grey[100],
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 20,
-                          vertical: 12, // Slimmer profile
+                          vertical: 12,
                         ),
                       ),
                       onSubmitted: (_) => _sendMessage(),
@@ -324,7 +522,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(12),
                       decoration: const BoxDecoration(
-                        color: Colors.black, // Consistent with Connect button
+                        color: Colors.black,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
