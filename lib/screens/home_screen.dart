@@ -10,6 +10,7 @@ import '../utils/rag_service.dart';
 import '../widgets/bmi_card.dart';
 import '../widgets/sleep_card.dart';
 import '../widgets/stat_card.dart';
+import '../widgets/parallax_tilt.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 
@@ -277,15 +278,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 25),
 
                       // Sleep Card (Moved to Top)
-                      SleepCard(
-                        sleepDuration: _sleepDuration,
-                        weeklySleep: _weeklySleep,
-                        monthlySleep: _monthlySleep,
-                        onViewModeChanged: (mode) {
-                          if (mode == "Monthly" && _monthlySleep.isEmpty) {
-                            _fetchMonthlySleep();
-                          }
-                        },
+                      ParallaxTilt(
+                        child: SleepCard(
+                          sleepDuration: _sleepDuration,
+                          weeklySleep: _weeklySleep,
+                          monthlySleep: _monthlySleep,
+                          onViewModeChanged: (mode) {
+                            if (mode == "Monthly" && _monthlySleep.isEmpty) {
+                              _fetchMonthlySleep();
+                            }
+                          },
+                        ),
                       ),
 
                       const SizedBox(height: 15),
@@ -294,27 +297,31 @@ class _HomeScreenState extends State<HomeScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: StatCard(
-                              icon: Icons.favorite_border,
-                              title: "Heart Rate",
-                              value: _heartRate.toString(),
-                              unit: "bpm",
-                              subTitle: "Avg",
-                              subValue: "Latest",
-                              rawData: "Source: Health Connect | Now",
+                            child: ParallaxTilt(
+                              child: StatCard(
+                                icon: Icons.favorite_border,
+                                title: "Heart Rate",
+                                value: _heartRate.toString(),
+                                unit: "bpm",
+                                subTitle: "Avg",
+                                subValue: "Latest",
+                                rawData: "Source: Health Connect | Now",
+                              ),
                             ),
                           ),
                           const SizedBox(width: 15),
                           Expanded(
-                            child: StatCard(
-                              icon: Icons.directions_run,
-                              title: "Activity",
-                              value: (_steps / 1000).toStringAsFixed(1),
-                              unit: "k steps",
-                              subTitle: "Dist",
-                              subValue:
-                                  "${(_distance / 1000).toStringAsFixed(2)} km",
-                              rawData: "Source: Health Connect | Now",
+                            child: ParallaxTilt(
+                              child: StatCard(
+                                icon: Icons.directions_run,
+                                title: "Activity",
+                                value: (_steps / 1000).toStringAsFixed(1),
+                                unit: "k steps",
+                                subTitle: "Dist",
+                                subValue:
+                                    "${(_distance / 1000).toStringAsFixed(2)} km",
+                                rawData: "Source: Health Connect | Now",
+                              ),
                             ),
                           ),
                         ],
@@ -323,7 +330,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 15),
 
                       // BMI Card (Replaces Wellness)
-                      BMICard(bmi: _bmi, weight: _weight, height: _height),
+                      ParallaxTilt(
+                        child: BMICard(
+                          bmi: _bmi,
+                          weight: _weight,
+                          height: _height,
+                        ),
+                      ),
 
                       const SizedBox(height: 20),
 

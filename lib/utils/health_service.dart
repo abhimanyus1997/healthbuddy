@@ -41,10 +41,13 @@ class HealthService {
     HealthDataType.SLEEP_DEEP,
     HealthDataType.SLEEP_REM,
     HealthDataType.SLEEP_SESSION,
+    HealthDataType.BIRTH_DATE,
   ];
 
   // Define permissions for each type (READ only for now)
   static const List<HealthDataAccess> _permissions = [
+    HealthDataAccess.READ,
+    HealthDataAccess.READ,
     HealthDataAccess.READ,
     HealthDataAccess.READ,
     HealthDataAccess.READ,
@@ -473,6 +476,32 @@ class HealthService {
       }
     } catch (e) {
       developer.log("Error fetching Gender: $e");
+    }
+    return null;
+  }
+
+  Future<int?> getAge() async {
+    try {
+      final now = DateTime.now();
+      List<HealthDataPoint> data = await _health.getHealthDataFromTypes(
+        startTime: DateTime(1900),
+        endTime: now,
+        types: [HealthDataType.BIRTH_DATE],
+      );
+
+      if (data.isNotEmpty) {
+        final bdayPoint = data.first;
+        DateTime? birthDate = bdayPoint.dateFrom;
+
+        int age = now.year - birthDate.year;
+        if (now.month < birthDate.month ||
+            (now.month == birthDate.month && now.day < birthDate.day)) {
+          age--;
+        }
+        return age;
+      }
+    } catch (e) {
+      developer.log("Error fetching Age: $e");
     }
     return null;
   }

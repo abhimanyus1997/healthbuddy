@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
@@ -8,16 +9,22 @@ class GroqService {
       'https://api.groq.com/openai/v1/chat/completions';
 
   Future<String?> sendMessage(
-    String content, {
-    String model = 'openai/gpt-oss-120b',
+    List<Map<String, String>> messages, {
+    String model = 'llama-3.3-70b-versatile',
   }) async {
     final apiKey = dotenv.env['GROQ_API_KEY'];
-    if (apiKey == null) {
+    if (apiKey == null || apiKey.isEmpty) {
       debugPrint('Error: GROQ_API_KEY not found in .env');
-      return "Error: API Key missing";
+      return "Error: API Key missing. Please set it in Settings.";
     }
 
     try {
+      // DEBUG LOGGING: Print the exact payload being sent
+      developer.log("--- GROQ REQUEST START ---");
+      developer.log("Model: $model");
+      developer.log("Messages Payload: ${jsonEncode(messages)}");
+      developer.log("--- GROQ REQUEST END ---");
+
       final response = await http.post(
         Uri.parse(_baseUrl),
         headers: {
@@ -25,15 +32,12 @@ class GroqService {
           'Authorization': 'Bearer $apiKey',
         },
         body: jsonEncode({
-          "messages": [
-            {"role": "user", "content": content},
-          ],
+          "messages": messages,
           "model": model,
-          "temperature": 1,
+          "temperature": 0.7,
           "max_completion_tokens": 1024,
           "top_p": 1,
-          "stream":
-              false, // Simplified for now, can perform streaming if needed
+          "stream": false,
           "stop": null,
         }),
       );
@@ -43,7 +47,7 @@ class GroqService {
         return data['choices'][0]['message']['content'];
       } else {
         debugPrint('Groq API Error: ${response.statusCode} - ${response.body}');
-        return "Error: ${response.statusCode}";
+        return "Error: ${response.statusCode} - ${response.reasonPhrase}";
       }
     } catch (e) {
       debugPrint('Exception calling Groq API: $e');

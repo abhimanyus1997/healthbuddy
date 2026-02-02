@@ -20,6 +20,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _heightController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
+  final TextEditingController _ageController = TextEditingController();
 
   String _gender = 'Male'; // Default
 
@@ -38,6 +39,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _apiKeyController.text = prefs.getString('groq_api_key') ?? '';
       _heightController.text = prefs.getString('user_height') ?? '';
       _weightController.text = prefs.getString('user_weight') ?? '';
+      _ageController.text = prefs.getString('user_age') ?? '';
       _gender = prefs.getString('user_gender') ?? 'Male';
       _isLoading = false;
     });
@@ -63,6 +65,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final h = await healthService.getHeight();
       final w = await healthService.getWeight();
       final g = await healthService.getGender();
+      final age = await healthService.getAge();
 
       setState(() {
         if (h != null && _heightController.text.isEmpty) {
@@ -70,6 +73,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
         if (w != null && _weightController.text.isEmpty) {
           _weightController.text = w.toStringAsFixed(1);
+        }
+        if (age != null && _ageController.text.isEmpty) {
+          _ageController.text = age.toString();
         }
         // Only override gender if we found one
         if (g != null) {
@@ -99,6 +105,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await prefs.setString('groq_api_key', _apiKeyController.text);
       await prefs.setString('user_height', _heightController.text);
       await prefs.setString('user_weight', _weightController.text);
+      await prefs.setString('user_age', _ageController.text);
       await prefs.setString('user_gender', _gender);
 
       if (mounted) {
@@ -194,8 +201,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _nameController,
                         "Enter your name",
                       ),
-                      const SizedBox(height: 15),
-
                       Row(
                         children: [
                           Expanded(
@@ -212,6 +217,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               "Weight (kg)",
                               _weightController,
                               "e.g. 70",
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                          const SizedBox(width: 15),
+                          Expanded(
+                            child: _buildTextField(
+                              "Age",
+                              _ageController,
+                              "e.g. 25",
                               keyboardType: TextInputType.number,
                             ),
                           ),
