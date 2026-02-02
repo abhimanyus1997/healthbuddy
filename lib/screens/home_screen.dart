@@ -2,12 +2,12 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fluttermoji/fluttermoji.dart';
 import '../utils/health_service.dart';
-import '../widgets/energy_card.dart';
-import '../widgets/bmi_card.dart'; // NEW
-import '../widgets/wellness_card.dart';
+import '../utils/rag_service.dart';
+import '../widgets/bmi_card.dart';
 import '../widgets/sleep_card.dart';
 import '../widgets/stat_card.dart';
 import 'chat_screen.dart';
@@ -25,16 +25,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Real Data
   int _steps = 0;
-  int _calories = 0;
   int _heartRate = 0;
   int _distance = 0;
   String _sleepDuration = "0h 0m";
-  List<double> _weeklySteps = [];
   List<SleepDailyData> _weeklySleep = [];
+  List<SleepDailyData> _monthlySleep = [];
+
+  double? _bmi;
+  double? _weight;
+  double? _height;
+
   bool _isLoading = true;
 
   String _userName = "User";
-  String? _profilePicUrl;
 
   @override
   void initState() {
@@ -46,7 +49,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
     String? storedName = prefs.getString('user_name');
-    String? storedPic = prefs.getString('profile_pic_url');
 
     // If no stored name, fallback to device info
     if (storedName == null || storedName.isEmpty) {
@@ -67,7 +69,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {
         _userName = storedName ?? "User";
-        _profilePicUrl = storedPic;
       });
     }
   }
@@ -78,35 +79,64 @@ class _HomeScreenState extends State<HomeScreen> {
       bool authorized = await _healthService.requestPermissions();
       if (!authorized) {
         developer.log("Permissions denied or Health Connect not available");
-        if (mounted) {
-          // Show dialog after a slight delay to ensure context is ready if called from init
-          Future.delayed(Duration.zero, () => _showPermissionDialog());
-        }
+        developer.log("Permissions denied or Health Connect not available");
+        // Do not auto-show dialog on init, let user trigger it
       }
 
       // Parallel fetching for performance
       final results = await Future.wait([
         _healthService.getSteps(),
-        _healthService.getCalories(),
         _healthService.getHeartRate(),
         _healthService.getSleepData(),
-        _healthService.getWeeklySteps(),
         _healthService.getWeeklySleep(),
         _healthService.getDistance(),
+        _healthService.getBMI(),
+        _healthService.getWeight(),
+        _healthService.getHeight(),
       ]);
+
+      // Load fallback data from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      double? manualHeight =
+          double.tryParse(prefs.getString('user_height') ?? '') != null
+          ? double.parse(prefs.getString('user_height')!) /
+                100 // cm to m
+          : null;
+      double? manualWeight = double.tryParse(
+        prefs.getString('user_weight') ?? '',
+      );
 
       if (mounted) {
         setState(() {
           _steps = results[0] as int;
-          _calories = results[1] as int;
-          _heartRate = results[2] as int;
-          _sleepDuration = results[3] as String;
-          _weeklySteps = results[4] as List<double>;
-          _weeklySleep = results[5] as List<SleepDailyData>;
-          _distance = results[6] as int;
+          _heartRate = results[1] as int;
+          _sleepDuration = results[2] as String;
+          _weeklySleep = results[3] as List<SleepDailyData>; // Default 7 Days
+          _distance = results[4] as int;
+
+          // Use Health data, otherwise fallback to manual
+          _height = (results[7] as double?) ?? manualHeight;
+          _weight = (results[6] as double?) ?? manualWeight;
+
+          // Re-calculate BMI if needed using the best available data
+          double? fetchedBMI = results[5] as double?;
+          if (fetchedBMI != null && fetchedBMI > 0) {
+            _bmi = fetchedBMI;
+          } else if (_height != null && _weight != null && _height! > 0) {
+            _bmi = _weight! / (_height! * _height!);
+          } else {
+            _bmi = null;
+          }
         });
       }
       developer.log("All dashboard data synced.");
+
+      // Save Daily Summary for RAG
+      if (mounted) {
+        final summary =
+            "Steps: $_steps, Sleep: $_sleepDuration, BMI: ${_bmi?.toStringAsFixed(1) ?? 'N/A'}, Weight: ${_weight?.toStringAsFixed(1) ?? 'N/A'}";
+        await RagService().saveDailySummary(DateTime.now(), summary);
+      }
     } catch (e, stackTrace) {
       developer.log(
         "Error in _fetchData: $e",
@@ -122,30 +152,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showPermissionDialog() async {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Permissions Required"),
-        content: const Text(
-          "Health Buddy needs access to your health data (Steps, Sleep, etc.) to function correctly.\n\nPlease enable permissions in Settings.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await openAppSettings();
-            },
-            child: const Text("Open Settings"),
-          ),
-        ],
-      ),
-    );
+  Future<void> _fetchMonthlySleep() async {
+    try {
+      final monthly = await _healthService.getSleepHistory(days: 30);
+      if (mounted) {
+        setState(() {
+          _monthlySleep = monthly;
+        });
+      }
+    } catch (e) {
+      developer.log("Error fetching monthly sleep: $e");
+    }
   }
 
   @override
@@ -169,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Row(
                             children: [
-                              // Avatar
+                              // Avatar (Fluttermoji)
                               GestureDetector(
                                 onTap: () {
                                   Navigator.push(
@@ -182,22 +199,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                     (_) => _loadUserInfo(),
                                   ); // Refresh on return
                                 },
-                                child: CircleAvatar(
+                                // Using FluttermojiCircleAvatar for the avatar
+                                child: FluttermojiCircleAvatar(
                                   radius: 20,
                                   backgroundColor: Colors.grey[300],
-                                  backgroundImage:
-                                      _profilePicUrl != null &&
-                                          _profilePicUrl!.isNotEmpty
-                                      ? NetworkImage(_profilePicUrl!)
-                                      : null,
-                                  child:
-                                      _profilePicUrl == null ||
-                                          _profilePicUrl!.isEmpty
-                                      ? const Icon(
-                                          Icons.person,
-                                          color: Colors.grey,
-                                        )
-                                      : null,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -216,31 +221,41 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
-                          // Search Bar Mock
-                          Container(
-                            width: 150,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Row(
-                              children: [
-                                SizedBox(width: 10),
-                                Icon(
-                                  Icons.search,
-                                  color: Colors.grey,
-                                  size: 20,
+                          const SizedBox(height: 10),
+                          // Search Bar (Functional)
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                showSearch(
+                                  context: context,
+                                  delegate: HealthSearchDelegate(),
+                                );
+                              },
+                              child: Container(
+                                height: 30,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
                                 ),
-                                SizedBox(width: 5),
-                                Text(
-                                  "Search...",
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 12,
-                                  ),
+                                child: const Row(
+                                  children: [
+                                    SizedBox(width: 10),
+                                    Icon(
+                                      Icons.search,
+                                      color: Colors.grey,
+                                      size: 20,
+                                    ),
+                                    SizedBox(width: 5),
+                                    Text(
+                                      "Search...",
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ],
@@ -265,11 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       SleepCard(
                         sleepDuration: _sleepDuration,
                         weeklySleep: _weeklySleep,
-                        monthlySleep: _monthlySleep, // New
+                        monthlySleep: _monthlySleep,
                         onViewModeChanged: (mode) {
-                          setState(() {
-                            _sleepViewMode = mode;
-                          });
                           if (mode == "Monthly" && _monthlySleep.isEmpty) {
                             _fetchMonthlySleep();
                           }
@@ -367,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => const ChatScreen(
-                                      modelId: "llama3-8b-8192",
+                                      modelId: "llama-3.3-70b-versatile",
                                       modelName: "NutriGPT",
                                     ),
                                   ),
@@ -396,5 +408,66 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       floatingActionButton: null,
     );
+  }
+}
+
+class HealthSearchDelegate extends SearchDelegate {
+  final RagService _ragService = RagService();
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    return [
+      IconButton(
+        icon: const Icon(Icons.clear),
+        onPressed: () {
+          query = '';
+        },
+      ),
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () {
+        close(context, null);
+      },
+    );
+  }
+
+  @override
+  Widget buildResults(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _ragService.searchHealthLogs(query),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(child: Text("No logs found."));
+        }
+
+        final results = snapshot.data!;
+        return ListView.builder(
+          itemCount: results.length,
+          itemBuilder: (context, index) {
+            final log = results[index];
+            final date = DateTime.parse(log['date']);
+            final dateStr = "${date.year}-${date.month}-${date.day}";
+
+            return ListTile(
+              title: Text(dateStr),
+              subtitle: Text(log['summary']),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget buildSuggestions(BuildContext context) {
+    return Container();
   }
 }

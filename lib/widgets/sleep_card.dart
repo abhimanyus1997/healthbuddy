@@ -46,6 +46,7 @@ class _SleepCardState extends State<SleepCard> {
   }
 
   void _updateDisplay() {
+    if (!mounted) return;
     setState(() {
       // Determine which dataset to use
       List<SleepDailyData> currentData = _viewMode == "Weekly"
@@ -140,7 +141,7 @@ class _SleepCardState extends State<SleepCard> {
                         _updateDisplay(); // Refresh display with new mode
                       }
                     },
-                    items: <String>['Weekly', 'Monthly']
+                    items: <String>['Weekly', 'Daily']
                         .map<DropdownMenuItem<String>>((String value) {
                           return DropdownMenuItem<String>(
                             value: value,
@@ -211,7 +212,7 @@ class _SleepCardState extends State<SleepCard> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal, // Scrollable for monthly view
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   ...currentData.map((data) {
@@ -220,7 +221,9 @@ class _SleepCardState extends State<SleepCard> {
                     if (height < 0.1) height = 0.1;
 
                     return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                      padding: const EdgeInsets.only(
+                        right: 12.0,
+                      ), // Consistent gap
                       child: GestureDetector(
                         onTap: () => _onDaySelected(data),
                         child: _buildBar(
@@ -232,10 +235,7 @@ class _SleepCardState extends State<SleepCard> {
                     );
                   }),
 
-                  if (currentData.isEmpty) ...[
-                    // Placeholder if empty
-                    _buildBar("No Data", 0.1),
-                  ],
+                  if (currentData.isEmpty) ...[_buildBar("No Data", 0.1)],
                 ],
               ),
             ),

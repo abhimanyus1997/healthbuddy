@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class BMICard extends StatelessWidget {
+class BMICard extends StatefulWidget {
   final double? bmi;
   final double? weight;
   final double? height;
@@ -8,18 +8,25 @@ class BMICard extends StatelessWidget {
   const BMICard({super.key, this.bmi, this.weight, this.height});
 
   @override
+  State<BMICard> createState() => _BMICardState();
+}
+
+class _BMICardState extends State<BMICard> with SingleTickerProviderStateMixin {
+  @override
   Widget build(BuildContext context) {
     String bmiCategory = "--";
     Color bmiColor = Colors.grey;
 
-    if (bmi != null && bmi! > 0) {
-      if (bmi! < 18.5) {
+    double bmiValue = widget.bmi ?? 0;
+
+    if (bmiValue > 0) {
+      if (bmiValue < 18.5) {
         bmiCategory = "Underweight";
         bmiColor = Colors.blue;
-      } else if (bmi! < 25) {
+      } else if (bmiValue < 25) {
         bmiCategory = "Normal";
         bmiColor = const Color(0xFFD7FF64);
-      } else if (bmi! < 30) {
+      } else if (bmiValue < 30) {
         bmiCategory = "Overweight";
         bmiColor = Colors.orange;
       } else {
@@ -51,7 +58,7 @@ class BMICard extends StatelessWidget {
                 "BMI Index",
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
-              if (bmi != null)
+              if (widget.bmi != null)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -74,21 +81,41 @@ class BMICard extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Center(
-            child: CustomPaint(
-              size: const Size(200, 100),
-              painter: BMIGaugePainter(bmi: bmi ?? 0, scoreColor: bmiColor),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: bmiValue),
+              duration: const Duration(seconds: 2),
+              curve: Curves.easeOut,
+              builder: (context, animatedBMI, child) {
+                return CustomPaint(
+                  size: const Size(200, 100),
+                  painter: BMIGaugePainter(
+                    bmi: animatedBMI,
+                    scoreColor: bmiColor,
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 10),
           Center(
-            child: Text(
-              bmi?.toStringAsFixed(1) ?? "--",
-              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: bmiValue),
+              duration: const Duration(seconds: 2),
+              curve: Curves.easeOut,
+              builder: (context, animatedBMI, child) {
+                return Text(
+                  widget.bmi != null ? animatedBMI.toStringAsFixed(1) : "--",
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
+                );
+              },
             ),
           ),
           Center(
             child: Text(
-              "Height: ${height?.toStringAsFixed(1) ?? "-"}m  |  Weight: ${weight?.toStringAsFixed(1) ?? "-"}kg",
+              "Height: ${widget.height?.toStringAsFixed(1) ?? "-"}m  |  Weight: ${widget.weight?.toStringAsFixed(1) ?? "-"}kg",
               style: TextStyle(color: Colors.grey[500], fontSize: 12),
             ),
           ),

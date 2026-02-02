@@ -33,17 +33,17 @@ class HealthService {
     HealthDataType.BODY_MASS_INDEX,
     HealthDataType.ACTIVE_ENERGY_BURNED,
     HealthDataType.DISTANCE_DELTA,
+    HealthDataType.DISTANCE_DELTA,
+    // HealthDataType.GENDER, // Causes issues on some devices/SDKs
     // Sleep Data Types
     HealthDataType.SLEEP_ASLEEP,
     HealthDataType.SLEEP_AWAKE,
-    HealthDataType
-        .SLEEP_DEEP, // Android/iOS specific handling might be needed but requesting is safe
+    HealthDataType.SLEEP_DEEP,
     HealthDataType.SLEEP_REM,
-    HealthDataType.SLEEP_SESSION, // General session
+    HealthDataType.SLEEP_SESSION,
   ];
 
   // Define permissions for each type (READ only for now)
-  // MUST MATCH LENGTH OF _types
   static const List<HealthDataAccess> _permissions = [
     HealthDataAccess.READ,
     HealthDataAccess.READ,
@@ -60,7 +60,6 @@ class HealthService {
   ];
 
   Future<bool> requestPermissions() async {
-    // Check if we have permissions
     try {
       bool? hasPermissions = await _health.hasPermissions(
         _types,
@@ -127,7 +126,6 @@ class HealthService {
         types: [HealthDataType.STEPS],
       );
 
-      // Aggregate steps by day
       for (var point in healthData) {
         final date = DateTime(
           point.dateFrom.year,
@@ -136,7 +134,6 @@ class HealthService {
         );
         int steps = 0;
 
-        // Handle NumericHealthValue
         if (point.value is NumericHealthValue) {
           steps = (point.value as NumericHealthValue).numericValue.round();
         }
@@ -154,10 +151,8 @@ class HealthService {
   Future<int> getCalories() async {
     final now = DateTime.now();
     final midnight = DateTime(now.year, now.month, now.day);
-    developer.log("Fetching calories from $midnight to $now");
 
     try {
-      // Fetch Active Energy Burned
       List<HealthDataPoint> data = await _health.getHealthDataFromTypes(
         startTime: midnight,
         endTime: now,
@@ -171,8 +166,6 @@ class HealthService {
               .toDouble();
         }
       }
-
-      developer.log("Total calories fetched: $totalCalories");
       return totalCalories.round();
     } catch (e) {
       developer.log("Error fetching calories: $e");
@@ -183,23 +176,16 @@ class HealthService {
   Future<int> getHeartRate() async {
     final now = DateTime.now();
     final midnight = DateTime(now.year, now.month, now.day);
-    developer.log("Fetching heart rate from $midnight to $now");
 
     try {
-      // Fetch Heart Rate samples
       List<HealthDataPoint> data = await _health.getHealthDataFromTypes(
         startTime: midnight,
         endTime: now,
         types: [HealthDataType.HEART_RATE],
       );
 
-      if (data.isEmpty) {
-        developer.log("No heart rate data found");
-        return 0;
-      }
+      if (data.isEmpty) return 0;
 
-      // Calculate average roughly, or just get the latest
-      // Let's get the latest for "Current Heart Rate" feel
       data.sort((a, b) => b.dateFrom.compareTo(a.dateFrom));
       final latest = data.first;
 
@@ -207,8 +193,6 @@ class HealthService {
       if (latest.value is NumericHealthValue) {
         hr = (latest.value as NumericHealthValue).numericValue.toDouble();
       }
-
-      developer.log("Latest heart rate fetched: $hr");
       return hr.round();
     } catch (e) {
       developer.log("Error fetching heart rate: $e");
@@ -234,6 +218,7 @@ class HealthService {
               .toDouble();
         }
       }
+      developer.log("Distance fetched: $totalDist");
       return totalDist.round(); // in meters
     } catch (e) {
       developer.log("Error fetching distance: $e");
@@ -244,21 +229,15 @@ class HealthService {
   Future<String> getSleepData() async {
     final now = DateTime.now();
     final yesterday = now.subtract(const Duration(days: 1));
-    developer.log("Fetching sleep data from $yesterday to $now");
 
     try {
-      // Fetch Sleep Session/Intervals
-      // Removing SLEEP_IN_BED as it caused errors on some devices
       List<HealthDataPoint> data = await _health.getHealthDataFromTypes(
         startTime: yesterday,
         endTime: now,
         types: [HealthDataType.SLEEP_ASLEEP, HealthDataType.SLEEP_SESSION],
       );
 
-      if (data.isEmpty) {
-        developer.log("No sleep data found");
-        return "0h 0m";
-      }
+      if (data.isEmpty) return "0h 0m";
 
       data = _health.removeDuplicates(data);
 
@@ -272,8 +251,6 @@ class HealthService {
 
       int hours = totalMinutes ~/ 60;
       int minutes = totalMinutes % 60;
-
-      developer.log("Total sleep calculated: ${hours}h ${minutes}m");
       return "${hours}h ${minutes}m";
     } catch (e) {
       developer.log("Error fetching sleep: $e");
@@ -286,9 +263,7 @@ class HealthService {
     final midnight = DateTime(now.year, now.month, now.day);
     try {
       List<HealthDataPoint> data = await _health.getHealthDataFromTypes(
-        startTime: midnight.subtract(
-          const Duration(days: 365),
-        ), // Look back a year
+        startTime: midnight.subtract(const Duration(days: 365)),
         endTime: now,
         types: [HealthDataType.BODY_MASS_INDEX],
       );
@@ -347,7 +322,6 @@ class HealthService {
     return null;
   }
 
-  // Modified to support variable days (7 for weekly, 30 for monthly)
   Future<List<SleepDailyData>> getSleepHistory({int days = 7}) async {
     final now = DateTime.now();
     List<SleepDailyData> historyData = [];
@@ -376,9 +350,9 @@ class HealthService {
           data = _health.removeDuplicates(data);
 
           String dayName = _getDayName(dayStart.weekday);
-          // For monthly view, show date number
           if (days > 7) {
-            dayName = "${dayStart.day}";
+            dayName =
+                "${dayStart.day.toString().padLeft(2, '0')}/${_getMonthName(dayStart.month)}";
           }
 
           int totalAsleepMinutes = 0;
@@ -422,11 +396,10 @@ class HealthService {
             ),
           );
         } catch (innerError) {
-          developer.log("Error fetching sleep day $i: $innerError");
           historyData.add(
             SleepDailyData(
               dayName: (days > 7)
-                  ? "${dayStart.day}"
+                  ? "${dayStart.day.toString().padLeft(2, '0')}/${_getMonthName(dayStart.month)}"
                   : _getDayName(dayStart.weekday),
               durationHours: 0,
               efficiency: "--",
@@ -445,7 +418,6 @@ class HealthService {
     }
   }
 
-  // Alias for backward compatibility if needed, using 7 days
   Future<List<SleepDailyData>> getWeeklySleep() async {
     return getSleepHistory(days: 7);
   }
@@ -481,24 +453,52 @@ class HealthService {
     }
   }
 
-  String _getDayName(int weekday) {
-    switch (weekday) {
-      case 1:
-        return "Mon";
-      case 2:
-        return "Tue";
-      case 3:
-        return "Wed";
-      case 4:
-        return "Thu";
-      case 5:
-        return "Fri";
-      case 6:
-        return "Sat";
-      case 7:
-        return "Sun";
-      default:
-        return "";
+  Future<String?> getGender() async {
+    final now = DateTime.now();
+    try {
+      List<HealthDataPoint> data = await _health.getHealthDataFromTypes(
+        startTime: now.subtract(const Duration(days: 365 * 10)),
+        endTime: now,
+        types: [HealthDataType.GENDER],
+      );
+      if (data.isNotEmpty) {
+        data.sort((a, b) => b.dateFrom.compareTo(a.dateFrom));
+        final point = data.first;
+        if (point.value is NumericHealthValue) {
+          final val = (point.value as NumericHealthValue).numericValue.toInt();
+          if (val == 1) return 'Male';
+          if (val == 2) return 'Female';
+          if (val == 3) return 'Other';
+        }
+      }
+    } catch (e) {
+      developer.log("Error fetching Gender: $e");
     }
+    return null;
+  }
+
+  String _getDayName(int weekday) {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    if (weekday >= 1 && weekday <= 7) return days[weekday - 1];
+    return "";
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    if (month >= 1 && month <= 12) return months[month - 1];
+    return "";
   }
 }
