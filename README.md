@@ -19,7 +19,7 @@
 
 | Home Dashboard | Chat with NutriGPT | Sleep Analysis |
 |:---:|:---:|:---:|
-| *(Add Home Screenshot Here)* | *(Add Chat Screenshot Here)* | *(Add Sleep Screenshot Here)* |
+
 
 ## 🛠️ Tech Stack
 
