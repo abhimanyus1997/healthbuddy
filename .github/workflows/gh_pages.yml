@@ -11,24 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-      
-      - run: flutter pub get
-      
-      # Note: For the web build to work without the .env file in the repo,
-      # we need to create a dummy .env or inject the key if strictly required at build time.
-      # If the key is only read at runtime, 'flutter build web' will succeed but key will be null.
-      # Users visiting the web page might need to enter their own key in the UI if implemented,
-      # or you must use Repository Secrets to create the .env file here.
-      # For now, we create a dummy .env to allow build to pass if it checks for file existence.
-      - run: echo "GROQ_API_KEY=placeholder" > .env
-
-      - run: flutter build web --release --base-href "/healthbuddy/"
-
+      # Deploy the static landing page located in landing_page/healthbuddy
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build/web
+          publish_dir: ./landing_page/healthbuddy
